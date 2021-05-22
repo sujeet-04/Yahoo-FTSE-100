@@ -1,0 +1,264 @@
+---
+title: "Yahoo FTSE-100"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+Introduction: The Financial Times Stock Exchange 100 Index, also called the FTSE 100 Index, is a share index of the 100 companies listed on the London Stock Exchange with the highest market capitalization. The index is maintained by the FTSE Group, a now wholly-owned subsidiary of the London Stock Exchange, which originated as a joint venture between the Financial Times and the London Stock Exchange. In this analysis, the evaluation of stock performance will be done based on their last 20 years' annual returns and trends. By using this FTSE 100 data from yahoo I will analyze the volatility,  volume, adjusted price of the stock and also will analyze the uncertainty in the stock market. First I will merge the FTSE annual data with the annual return data for all the company stock present in the list, then I will calculate the volatility and excessive return for the last 20 years for all the stock and will identify which stock showing the highest volatility and annual return, apart from that I will also analyze the volume of each company share and their trend.
+
+
+```{r setup, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+#Load the require libraries.
+
+library(readxl)
+library(DescTools)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(knitr)
+library(psych)
+library(ggcorrplot)
+library(texreg)
+
+```
+
+
+#Task - 1
+
+#First 6 rows of FTSE100 Constituents dataset.
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+#Load the Company name and relevant ticker dataset.
+Ticker_data <- read_excel("FTSE100CONSTITUENTS (2).xlsx",sheet = 1)
+head(Ticker_data)
+
+```
+
+#First 6 rows of Myreturns dataset.
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+#load the yearly return data
+Return_data <- read.csv("myreturns_assignment (2).csv",header = TRUE)
+head(Return_data)
+```
+
+#First 6 rows of FTSE100 dataset.
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+#Load the FTSE100 dataset.
+FTSE_data <- read.csv("ftse (1).csv",header = TRUE)
+head(FTSE_data)
+
+```
+
+
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+#Remove the na values from return data.
+Return_data <- Return_data[complete.cases(Return_data),]
+
+#Remove the na values from ftse data if available.
+FTSE_data <- FTSE_data[complete.cases(FTSE_data),]
+```
+
+
+Before merging both the dataset I have to see the class of each variable because the class of the primary column on which the merging will be done should be the same.to see the class of each attribute I will use str function.
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+#To see the structure of the dataset.
+str(FTSE_data)
+str(Return_data)
+```
+
+Here the ref.date is the common column between two data frame so the merging should be done on this column only, but here the format of both the attributes is different so if I will try to merge it like this then null values will be produced, so before merging I will transform both the column into date and make their format same.
+
+
+Now after merging I will check for null value first for that, I will use any NA, here it returns false which means there are no null values present in the dataset, next I will winsorize the adjusted price column for ftse and annual share record, to reduce the effect of extreme values or outliers present in this.
+
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+#Transform the ref.date column from character into date for both FTSE data and retuen data.
+FTSE_data$ref.date<-as.Date(FTSE_data$ref.date,format="%d/%m/%Y")
+Return_data$ref.date <- as.Date(Return_data$ref.date,format = "%Y/%m/%d")
+
+#Now merge both the dataset by taking ref.date as the primary id.
+myreturn <- left_join(Return_data,FTSE_data)
+
+#Check for Null value.
+anyNA(myreturn)
+
+# Winsorize the adjusted price for FTSE annual and share annual data.
+myreturn$ret.adjusted.prices <- Winsorize(myreturn$ret.adjusted.prices)
+myreturn$FTSE.ret.adjusted.prices <- Winsorize(myreturn$FTSE.ret.adjusted.prices)
+
+```
+
+
+Now after doing all the transformation required now i will calculate the annual return(ret.adjusted.prices - FTSE.ret.adjusted.prices) and annual volatility(price.high - price.low) for further calculation. here are the first 6 rows of the new data set. 
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+#Calculate annual excess returns.
+myreturn$annual_return <- myreturn$ret.adjusted.prices - myreturn$FTSE.ret.adjusted.prices
+
+#Calculate annual volatility.
+myreturn$annual_Volatility <- myreturn$price.high - myreturn$price.low
+
+head(myreturn)
+
+```
+
+Now I will use describe function to see the different parameters like range, mean, skewness, and kurtosis of the annual volatility, annual return, the volume of the share.
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+# Descriptive statistics.
+summ <- describe(myreturn[,c(3,11,16,17)])
+kable(summ, digits=3 ,caption="Descriptive statistics")
+
+```
+Here n is the number of observation and for all variable, it's 1360 means there is no null value in this attribute, next mean and sd is nothing but the average and standard deviation of each attribute, Now the range value is maxed for volume, high range value indicates that the data is distributed widely so the skewness will be more, and if the range is less it means the data points are distributed around the mean, Here volume having high skewness value and in positive direction means right-skewed, similarly for ftse volume and adjusted price I can see that there range is less due to which skewness is also low for these two attributes. So from these 4 attributes, the volume doesn't follow the normal distribution at all but ftse volume and adjusted price follow the normal distribution curve to some extent.
+
+
+Next, I will calculate the maximum and minimum annual return, volume, and volatility for the last 20 years, I will use data.table library from which I will use setDt function where my reference column will be the date so that I will get the maximum value for a particular year and also the share name of the company related to it.
+
+#1.	the stock with the highest annual excess return. 
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+high_exce <- setDT(myreturn)[, .SD[which.max(annual_return)], by=ref.date]
+print(high_exce[,c(1,2,18)])
+```
+
+
+#2.	the stock with the lowest annual excess return. 
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+low_exce <- setDT(myreturn)[, .SD[which.min(annual_return)], by=ref.date]
+print(low_exce[,c(1,2,18)])
+```
+
+
+#3.	the stock with the highest annual volatility 
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+high_vola <- setDT(myreturn)[, .SD[which.max(annual_Volatility)], by=ref.date]
+print(high_vola[,c(1,2,19)])
+```
+
+
+#4.	the stock with the lowest annual volatility 
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+low_vola <- setDT(myreturn)[, .SD[which.min(annual_Volatility)], by=ref.date]
+print(low_vola[,c(1,2,19)])
+```
+
+
+#5.	the stock with the highest annual volume
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+high_volume <- setDT(myreturn)[, .SD[which.max(volume)], by=ref.date]
+print(high_vola[,c(1,2,3)])
+```
+
+
+#6.	the stock with the lowest annual volume
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+low_volume <- setDT(myreturn)[, .SD[which.min(volume)], by=ref.date]
+print(low_volume[,c(1,2,3)])
+
+```
+
+To see the variation in the annual return concerning annual volatility I will build one dummy column using the if-else function where if the volatility is greater than the mean annual volatility it will compute 1 otherwise 0. to show the variation between high and low volatility group I will use boxplot, which is shown below.
+
+```{r , echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+myreturn$Volatility_Group <- ifelse(myreturn$annual_Volatility > mean(myreturn$annual_Volatility),1,0)
+
+ggplot(data = myreturn,mapping = aes(x = as.factor(Volatility_Group),y = annual_return,fill = as.factor(Volatility_Group))) + geom_boxplot()
+
+
+```
+
+Here from the plot, I can say that the mean annual return of those shares whose volatility is below the average volatility is less compared to those having greater annual volatility than average. so here I can say there is a direct relationship between volatility and return of the share more the volatility max will be returning.
+
+Next, I will do the same for volume to see the effect of volume in terms of annual returns of the share.
+
+```{r , echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+myreturn$Volume_Group <- ifelse(myreturn$volume>mean(myreturn$volume),1,0)
+
+ggplot(data = myreturn,mapping = aes(x = as.factor(Volume_Group),y = annual_return,fill = as.factor(Volume_Group))) + geom_boxplot()
+
+```
+Here the relationship is opposite to the previous one because the shares whose share volume is less than annual volume earning more returns than those shares whose volume is more the annual volume, so lower the volume more is the return and vice versa.  
+
+#Task - 2
+
+Next, to see the uncertainty effect of the stock market on the price, volatility, and return I will use the epudata dataset, I will use some plot and regression analysis to analyze the relationship between these factors. to calculate the annual volatility I will subtract the high price from the low price of each share. here are the first 6 rows of the EPU dataset.
+
+```{r , echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+EPU_data <- read.csv("epudata (1).csv", header = TRUE)
+
+EPU_data <- EPU_data[complete.cases(EPU_data),]
+
+EPU_data$volatility <- EPU_data$FTSE.price.high - EPU_data$FTSE.price.low
+
+head(EPU_data)
+```
+
+```{r}
+str(EPU_data)
+EPU_data$ref.date <- as.Date(EPU_data$ref.date , format =  "%d/%m/%Y")
+anyNA(EPU_data)
+```
+```{r}
+
+ggplot(data = EPU_data,mapping = aes(x = ref.date, y = FTSE.ret.adjusted.prices)) + geom_line() + ggtitle("Line plot for daily adjusted return price ")
+
+ggplot(data = EPU_data,mapping = aes(x = ref.date, y = FTSE.price.close)) + geom_line() + ggtitle("Line plot for daily closing price of stock")
+
+ggplot(data = EPU_data,mapping = aes(x = ref.date, y = volatility)) + geom_line() + ggtitle("Line plot for volatility ")
+
+
+```
+
+Next i will use scatter plot with linear regression line to see the relation between economic polity uncertainty and price index, volatility and adjusted price of FTSE100 share.
+
+```{r, echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+attach(EPU_data)
+
+ggplot(data = EPU_data, mapping = aes(x = epu, y = volatility)) + geom_point() + geom_smooth(method = lm)
+
+ggplot(data = EPU_data, mapping = aes(x = epu, y = FTSE.price.adjusted)) + geom_point() + geom_smooth(method = lm)
+
+ggplot(data = EPU_data, mapping = aes(x = epu, y = FTSE.ret.adjusted.prices)) + geom_point() + geom_smooth(method = lm)
+
+
+```
+
+from the above three plot, I can say that volatility is having a direct relationship between the economic performance uncertainty because the slope is upward here, which means whenever the volatility increases the EPU also increase, but in case of price index and annual return, the slope is almost straight which shows that there is no relationship at all between this two factor with the economic performance uncertainty. Next, I will use a correlation plot to see the correlation value between these factors, this will give me a more depth analysis of the dependency of these variables between each other.
+
+```{r , echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+corr <- round(cor(EPU_data[,c(6:10)]), 1)
+ggcorrplot(corr, hc.order = TRUE, type = "lower",lab = TRUE)
+
+```
+
+From the correlation value to it's clear that the uncertainty is not dependent on any other variable except volatility, even the correlation value for volatility is also not encouraging to build a linear regression model, but we will try it, from this plot I can say that volume is inversely proportional to the adjusted price which I already saw in boxplot analysis earlier. Next, I will use the lm function to build a linear regression model where my target variable is Economic performance uncertainty.
+
+
+```{r , echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE}
+
+model_1 <- lm(FTSE.ret.adjusted.prices ~ FTSE.price.adjusted + FTSE.volume + volatility + FTSE.volume,data = EPU_data)
+
+summary(model_1)
+
+plot(model_1)
+
+screenreg(model_1,stars=c(0.01,0.05,0.10), digits=5)
+
+```
+
+Here the R square and adjusted r square value is very less almost 1 percent which means only 1 percent variable is explained by this model, the reason behind this is the independent relationship between the target and the independent variable. if I look at the significance level which I consider 5  percent here only volatility is below this range, other than that no other attribute is significant to identify the variance present in the target variable. apart from the statistic, I use some residual. normal and fitted plot to explain the statistic of the model, Normal Q-Q plot shows that most of the points don't fall in the normal distribution line,  also in residual versus fitted plot most of the data points doesn't fall in the slope made by the model, so the model is not ideal for the relationship between target and independent variable, because there is no dependency between these variables.
